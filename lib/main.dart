@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_lulusin/login_page.dart';
+import 'package:flutter_lulusin/register_page.dart';
+import 'package:flutter_lulusin/Dashboard.dart';
+import 'package:flutter_lulusin/soal_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -9,20 +13,16 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          title: Text("Halo"),
-          backgroundColor: Colors.red,
-        ),
-        body: Center(
-          child: Text("Hallo world"),
-        ),
-        floatingActionButton: FloatingActionButton(
-          tooltip: 'Random',
-          onPressed: null,
-          child: Icon(Icons.refresh),
-        ),
-      ),
+      debugShowCheckedModeBanner: false,
+      title: 'Lulusin',
+      theme: ThemeData(),
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const LoginPage(),
+        '/register': (context) => const RegisterPage(),
+        '/siswa/dashboard': (context) => const Dashboard(),
+        '/siswa/pengerjaan': (context) => const SoalPage()
+      },
     );
   }
 }
