@@ -20,9 +20,9 @@ class _RegisterPageState extends State<RegisterPage> {
   // Base URL untuk backend Anda
   // Sesuaikan dengan IP lokal Anda atau alamat server jika di-deploy
   // Untuk Android Emulator: gunakan http://10.0.2.2:3000
-  // Untuk iOS Simulator/Web/Perangkat Fisik: gunakan http://localhost:3000 atau IP lokal Anda
+  // Untuk iOS Simulator/Web/Perangkat Fisik: gunakan https://cardinal-helpful-simply.ngrok-free.app atau IP lokal Anda
   final String _baseUrl =
-      'http://localhost:3000/API'; // Ganti dengan URL backend Anda
+      'https://cardinal-helpful-simply.ngrok-free.app/API'; // Ganti dengan URL backend Anda
 
   @override
   void dispose() {
@@ -76,6 +76,7 @@ class _RegisterPageState extends State<RegisterPage> {
         Uri.parse('$_baseUrl/register'), // Endpoint register Anda
         headers: <String, String>{
           'Content-Type': 'application/json; charset=UTF-8',
+          'ngrok-skip-browser-warning': 'true'
         },
         body: jsonEncode(<String, String>{
           'NISN': nisn,

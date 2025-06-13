@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_lulusin/tryout_detail.dart'; // Import the TryoutPage
 import 'package:flutter_lulusin/pembahasan_page.dart'; // Import SoalPembahasanPage
 
-// Model data untuk Tryout yang Belum Dikerjakan (tidak ada perubahan di sini, sudah bagus)
+// Model data untuk Tryout yang Belum Dikerjakan
 class NotDoneTryout {
   final String id;
   final String title;
@@ -25,29 +25,23 @@ class NotDoneTryout {
 
 // Model data untuk Top Scores
 class TopTryoutScore {
-  final String id; // <-- TAMBAHKAN ID DI SINI
+  final String id;
   final String subject;
   final double score;
 
   TopTryoutScore(
-      {required this.id,
-      required this.subject,
-      required this.score}); // <-- PERBARUI CONSTRUCTOR
+      {required this.id, required this.subject, required this.score});
 
   factory TopTryoutScore.fromJson(Map<String, dynamic> json) {
-    // Pastikan 'id_tryout' adalah kunci yang benar dari API untuk ID tryout
-    final String id =
-        json['id_tryout']?.toString() ?? ''; // <-- AMBIL ID DARI API
+    final String id = json['id_tryout']?.toString() ?? '';
 
-    // Menggunakan 'tryout_name' dari JSON respons API, dan menangani null
     final String subject =
         (json['tryout_name'] as String?) ?? 'Mata Pelajaran Tidak Tersedia';
 
-    // Menggunakan 'average_score' dari JSON respons API, dan menangani null/non-numeric
     final double score = (json['average_score'] as num?)?.toDouble() ?? 0.0;
 
     return TopTryoutScore(
-      id: id, // <-- SERAHKAN ID KE CONSTRUCTOR
+      id: id,
       subject: subject,
       score: score,
     );
@@ -63,8 +57,11 @@ class Dashboard extends StatefulWidget {
 
 class _DashboardState extends State<Dashboard> {
   bool _isDropdownMenuOpen = false;
-  final String _baseUrl = 'http://localhost:3000'; // Base URL backend Anda
+  final String _baseUrl =
+      'https://cardinal-helpful-simply.ngrok-free.app'; // Base URL backend Anda
 
+  // State untuk menyimpan data dari API
+  Map<String, dynamic> _countdownData = {};
   List<NotDoneTryout> _notDoneTryouts = [];
   List<TopTryoutScore> _topTryoutScores = [];
   bool _isLoading = true;
@@ -83,64 +80,44 @@ class _DashboardState extends State<Dashboard> {
   }
 
   void _handleDropdownItemSelected(String item) {
-    _toggleDropdownMenu(); // Tutup dropdown setelah item dipilih
-
+    _toggleDropdownMenu();
     if (item == 'Dashboard') {
       print('Navigating to Dashboard');
-      // Already on dashboard, could refresh or do nothing
     } else if (item == 'Tryout') {
       print('Navigating to Tryout List');
-      // Anda bisa menambahkan Navigator.pushReplacementNamed(context, '/siswa/tryout');
+      // Navigator.pushReplacementNamed(context, '/siswa/tryout');
     }
   }
 
   Future<void> _logoutUser() async {
+    // ... (Fungsi logout Anda tetap sama)
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? token = prefs.getString('auth_token');
-
       if (token == null) {
-        _showSnackBar(
-            'Tidak ada token ditemukan. Anda sudah logout atau sesi berakhir.');
-        Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+        if (mounted) Navigator.pushReplacementNamed(context, '/');
         return;
       }
-
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/logout'),
-        headers: <String, String>{
-          'Content-Type': 'application/json; charset=UTF-8',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
+      final response =
+          await http.post(Uri.parse('$_baseUrl/api/logout'), headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+        'ngrok-skip-browser-warning': 'true',
+      });
+      if (mounted) {
         await prefs.remove('auth_token');
-        _showSnackBar('Logout berhasil!');
-        Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
-      } else {
-        final Map<String, dynamic> responseData = jsonDecode(response.body);
-        _showSnackBar(
-            'Logout gagal: ${responseData['message'] ?? 'Terjadi kesalahan tidak dikenal.'}');
-        await prefs.remove('auth_token');
-        Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+        if (response.statusCode == 200) {
+          _showSnackBar('Logout berhasil!');
+        }
+        Navigator.pushReplacementNamed(context, '/');
       }
-    } on http.ClientException catch (e) {
-      _showSnackBar('Gagal terhubung ke server saat logout: ${e.message}');
-      print('Logout ClientException: ${e.message}');
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('auth_token');
-      Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
     } catch (e) {
-      _showSnackBar('Terjadi kesalahan saat logout: $e');
-      print('Logout Error: $e');
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('auth_token');
-      Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+      if (mounted) _showSnackBar('Terjadi kesalahan jaringan saat logout.');
     }
   }
 
   Future<void> _fetchDashboardData() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = '';
@@ -149,94 +126,69 @@ class _DashboardState extends State<Dashboard> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? token = prefs.getString('auth_token');
-      print('DEBUG: Token retrieved from SharedPreferences: $token');
-
       if (token == null) {
         _showSnackBar('Anda tidak terautentikasi. Silakan login kembali.');
-        print('DEBUG: Token is null, redirecting to login.');
-        Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+        if (mounted) Navigator.pushReplacementNamed(context, '/');
         return;
       }
 
       final response = await http.get(
         Uri.parse('$_baseUrl/api/student/dashboard'),
-        headers: <String, String>{
-          'Content-Type': 'application/json; charset=UTF-8',
+        headers: {
+          'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
+          'ngrok-skip-browser-warning': 'true'
         },
       );
 
-      print(
-          'DEBUG: Dashboard API Response Status Code: ${response.statusCode}');
-      print('DEBUG: Dashboard API Response Body: ${response.body}');
+      if (!mounted) return;
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
-        print('DEBUG: Dashboard data loaded successfully.');
 
-        try {
-          setState(() {
-            _notDoneTryouts = (responseData['notDoneTryouts'] as List? ?? [])
-                .map((json) => NotDoneTryout.fromJson(json))
-                .toList();
-            _topTryoutScores = (responseData['topTryoutScores'] as List? ?? [])
-                .map((json) => TopTryoutScore.fromJson(json))
-                .toList();
-            _isLoading = false;
-          });
-        } catch (parseError) {
-          setState(() {
-            _errorMessage = 'Gagal memproses data dashboard: $parseError';
-            _isLoading = false;
-          });
-          _showSnackBar(_errorMessage);
-          print('DEBUG: Data Parsing Error: $parseError');
-        }
-      } else if (response.statusCode == 401) {
-        _showSnackBar('Sesi Anda telah berakhir. Silakan login kembali.');
-        print('DEBUG: Received 401, session expired. Redirecting to login.');
-        await prefs.remove('auth_token');
-        Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
-      } else {
-        String apiErrorMessage =
-            'Terjadi kesalahan saat memuat data dashboard.';
-        try {
-          final Map<String, dynamic> responseData = jsonDecode(response.body);
-          apiErrorMessage = responseData['message'] ?? apiErrorMessage;
-        } catch (_) {
-          apiErrorMessage =
-              'Server merespons dengan status ${response.statusCode}, namun pesan tidak tersedia.';
-        }
         setState(() {
-          _errorMessage = apiErrorMessage;
+          // Parsing data countdown
+          _countdownData =
+              responseData['countdownSNBT'] as Map<String, dynamic>? ?? {};
+
+          // Parsing data tryout yang belum dikerjakan
+          _notDoneTryouts = (responseData['notDoneTryouts'] as List? ?? [])
+              .map((json) => NotDoneTryout.fromJson(json))
+              .toList();
+
+          // Parsing data top scores
+          _topTryoutScores = (responseData['topTryoutScores'] as List? ?? [])
+              .map((json) => TopTryoutScore.fromJson(json))
+              .toList();
+
           _isLoading = false;
         });
-        _showSnackBar(_errorMessage);
-        print(
-            'DEBUG: API Error (Status ${response.statusCode}): $_errorMessage');
+      } else {
+        // Handle error status code dari server
+        final Map<String, dynamic> errorData = jsonDecode(response.body);
+        setState(() {
+          _errorMessage =
+              errorData['message'] ?? 'Gagal memuat data dashboard.';
+          _isLoading = false;
+        });
       }
-    } on http.ClientException catch (e) {
-      setState(() {
-        _errorMessage =
-            'Terjadi kesalahan jaringan: ${e.message}. Pastikan Anda terhubung ke internet.';
-        _isLoading = false;
-      });
-      _showSnackBar(_errorMessage);
-      print('DEBUG: Fetch Dashboard Data ClientException: ${e.message}');
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Terjadi kesalahan tidak terduga: $e';
-        _isLoading = false;
-      });
-      _showSnackBar(_errorMessage);
-      print('DEBUG: Fetch Dashboard Data General Exception: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Terjadi kesalahan jaringan: ${e.toString()}';
+          _isLoading = false;
+        });
+      }
     }
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      );
+    }
   }
 
   @override
@@ -294,7 +246,8 @@ class _DashboardState extends State<Dashboard> {
                               ),
                             ),
                             const SizedBox(height: 20),
-                            _buildDailyQuoteCard(),
+                            // PERUBAHAN: Memanggil _buildCountdownCard
+                            _buildCountdownCard(),
                             const SizedBox(height: 20),
                             _buildDreamCampusSection(),
                             const SizedBox(height: 20),
@@ -321,11 +274,8 @@ class _DashboardState extends State<Dashboard> {
                                     fontFamily: 'Poppins'),
                               )
                             else
-                              // Meneruskan seluruh objek score ke _buildScoreCard
-                              ..._topTryoutScores.map((score) =>
-                                  _buildScoreCard(
-                                      score)) // <-- Kirim seluruh objek score
-                            ,
+                              ..._topTryoutScores
+                                  .map((score) => _buildScoreCard(score)),
                             const SizedBox(height: 20),
                           ],
                         ),
@@ -336,10 +286,11 @@ class _DashboardState extends State<Dashboard> {
     );
   }
 
-  Widget _buildDailyQuoteCard() {
-    final DateTime now = DateTime.now();
-    final String dayOfMonth = now.day.toString();
-    final String dayOfWeek = _getDayOfWeek(now.weekday);
+  // PERUBAHAN: Widget ini sekarang membangun kartu countdown
+  Widget _buildCountdownCard() {
+    final String title =
+        _countdownData['title'] as String? ?? 'Pengumuman Hasil Seleksi';
+    final int days = _countdownData['days'] as int? ?? 0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -365,15 +316,7 @@ class _DashboardState extends State<Dashboard> {
             child: Column(
               children: [
                 Text(
-                  dayOfWeek,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontFamily: 'Poppins',
-                    fontSize: 12,
-                  ),
-                ),
-                Text(
-                  dayOfMonth,
+                  days.toString(),
                   style: const TextStyle(
                     color: Colors.white,
                     fontFamily: 'Poppins',
@@ -381,17 +324,25 @@ class _DashboardState extends State<Dashboard> {
                     fontSize: 24,
                   ),
                 ),
+                const Text(
+                  'HARI',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(width: 16),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Usaha hari ini, kampus impian esok hari',
-              style: TextStyle(
+              title,
+              style: const TextStyle(
                 color: Colors.white,
                 fontFamily: 'Poppins',
-                fontSize: 16,
+                fontSize: 14, // Ukuran font disesuaikan agar pas
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -401,27 +352,7 @@ class _DashboardState extends State<Dashboard> {
     );
   }
 
-  String _getDayOfWeek(int weekday) {
-    switch (weekday) {
-      case DateTime.monday:
-        return 'Senin';
-      case DateTime.tuesday:
-        return 'Selasa';
-      case DateTime.wednesday:
-        return 'Rabu';
-      case DateTime.thursday:
-        return 'Kamis';
-      case DateTime.friday:
-        return 'Jumat';
-      case DateTime.saturday:
-        return 'Sabtu';
-      case DateTime.sunday:
-        return 'Minggu';
-      default:
-        return '';
-    }
-  }
-
+  // (Sisa widget helper seperti _buildDreamCampusSection, _buildSectionTitle, dll. tetap sama)
   Widget _buildDreamCampusSection() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -563,18 +494,13 @@ class _DashboardState extends State<Dashboard> {
     );
   }
 
-  // Widget baru untuk menampilkan skor
-  // Sekarang menerima objek TopTryoutScore penuh
   Widget _buildScoreCard(TopTryoutScore score) {
-    // <-- Menerima objek TopTryoutScore
     return GestureDetector(
-      // Membuat card bisa diklik
       onTap: () {
-        // Redirect ke halaman pembahasan menggunakan ID tryout dari score
         Navigator.pushNamed(
           context,
-          '/siswa/tryout/pembahasan',
-          arguments: score.id, // Meneruskan ID tryout sebagai argumen
+          '/siswa/tryout/hasil',
+          arguments: score.id,
         );
       },
       child: Container(
@@ -595,7 +521,7 @@ class _DashboardState extends State<Dashboard> {
           children: [
             Expanded(
               child: Text(
-                score.subject, // Menggunakan subject dari objek score
+                score.subject,
                 style: const TextStyle(
                   color: Colors.white,
                   fontFamily: 'Poppins',
@@ -603,17 +529,16 @@ class _DashboardState extends State<Dashboard> {
               ),
             ),
             Text(
-              score.score
-                  .toStringAsFixed(2), // Menggunakan score dari objek score
+              score.score.toStringAsFixed(2),
               style: const TextStyle(
                 color: Color(0xffe2d5cd),
                 fontFamily: 'Poppins',
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(width: 10), // Memberikan sedikit jarak
+            const SizedBox(width: 10),
             const Icon(
-              Icons.arrow_forward_ios, // Tambahkan ikon panah
+              Icons.arrow_forward_ios,
               color: Color(0xffe2d5cd),
               size: 16,
             ),

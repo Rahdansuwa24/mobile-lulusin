@@ -43,7 +43,8 @@ class _SoalPageState extends State<SoalPage> {
   // Variabel State
   bool _isLoading = true;
   String _errorMessage = '';
-  final String _baseUrl = 'http://localhost:3000'; // Sesuaikan jika perlu
+  final String _baseUrl =
+      'https://cardinal-helpful-simply.ngrok-free.app'; // Sesuaikan jika perlu
 
   late List<Subject>
       _allSubjectsState; // Akan diinisialisasi dari widget.allSubjects
@@ -122,12 +123,7 @@ class _SoalPageState extends State<SoalPage> {
     }
   }
 
-  // Fungsi _loadAllSubjectsData() atau _fetchAllSubjectsInternally() DIHAPUS
-  // karena SoalPage sekarang bergantung pada widget.allSubjects yang diteruskan.
-
   Future<void> _fetchCurrentSubjectData() async {
-    // Endpoint ini (untuk mengambil data spesifik satu mata pelajaran) tetap sama.
-    // URL: /api/student/tryout/:idTryout/:idSubject/taking
     final uri = Uri.parse(
         '$_baseUrl/api/student/tryout/${widget.tryoutId}/${widget.subjectId}/taking');
     final prefs = await SharedPreferences.getInstance();
@@ -141,6 +137,7 @@ class _SoalPageState extends State<SoalPage> {
     final response = await http.get(uri, headers: {
       'Content-Type': 'application/json; charset=UTF-8',
       'Authorization': 'Bearer $token',
+      'ngrok-skip-browser-warning': 'true',
     });
     print('[fetchCurrentSubjectData] URL: $uri');
     print(
@@ -198,8 +195,40 @@ class _SoalPageState extends State<SoalPage> {
     });
   }
 
+  // --- PERBAIKAN UTAMA DI SINI ---
+  Future<void> _submitAllUnansweredQuestions() async {
+    if (_questions.isEmpty || !mounted) return;
+
+    // Kumpulkan semua future dari proses submit jawaban kosong
+    List<Future> submissionFutures = [];
+    print('[SubmitAllUnanswered] Checking for untouched questions...');
+
+    for (var question in _questions) {
+      final String questionId = question['question_id'].toString();
+      // Hanya submit jika soal ini belum pernah dijawab sama sekali (tidak ada di map _selectedAnswers).
+      if (!_selectedAnswers.containsKey(questionId)) {
+        print(
+            '[SubmitAllUnanswered] Found untouched question ID: $questionId. Adding to submission queue.');
+        submissionFutures.add(_handleAnswerSelect(questionId, null));
+      }
+    }
+
+    if (submissionFutures.isNotEmpty) {
+      // Tunggu semua proses pengiriman jawaban kosong selesai.
+      _showSnackBar("Menyimpan semua soal yang belum terjawab...");
+      await Future.wait(submissionFutures);
+      print(
+          '[SubmitAllUnanswered] Finished submitting all untouched questions.');
+    } else {
+      print('[SubmitAllUnanswered] No untouched questions to submit.');
+    }
+  }
+
   void _handleTimeout() async {
     if (!mounted) return;
+
+    // Panggil fungsi baru untuk submit semua soal yang belum terjawab
+    await _submitAllUnansweredQuestions();
 
     final currentSbjIndex =
         _allSubjectsState.indexWhere((s) => s.id == widget.subjectId);
@@ -218,7 +247,7 @@ class _SoalPageState extends State<SoalPage> {
             builder: (context) => SoalPage(
               tryoutId: widget.tryoutId,
               subjectId: nextSubject.id,
-              allSubjects: _allSubjectsState, // Teruskan list yang sudah ada
+              allSubjects: _allSubjectsState,
             ),
           ),
         );
@@ -230,23 +259,25 @@ class _SoalPageState extends State<SoalPage> {
     }
   }
 
+  // Fungsi _submitEmptyAnswerIfNeeded dihapus karena digantikan oleh _submitAllUnansweredQuestions
+
   Future<void> _handleAnswerSelect(
       String questionId, String? answerOptionIdToSelect) async {
     if (!mounted) return;
 
     String? newSelectedOptionId;
-    if (_selectedAnswers[questionId] == answerOptionIdToSelect) {
+    // Jika pengguna mengklik opsi yang sama lagi, batalkan pilihan (set ke null)
+    if (_selectedAnswers[questionId] == answerOptionIdToSelect &&
+        answerOptionIdToSelect != null) {
       newSelectedOptionId = null;
     } else {
       newSelectedOptionId = answerOptionIdToSelect;
     }
 
+    // Update state untuk UI dan penyimpanan lokal
     setState(() {
-      if (newSelectedOptionId == null) {
-        _selectedAnswers.remove(questionId);
-      } else {
-        _selectedAnswers[questionId] = newSelectedOptionId;
-      }
+      // Tandai soal ini sudah pernah "disentuh", meskipun jawabannya null
+      _selectedAnswers[questionId] = newSelectedOptionId;
     });
     await _saveAnswersToPrefs();
 
@@ -264,40 +295,38 @@ class _SoalPageState extends State<SoalPage> {
       final body = jsonEncode({'answerOptionId': newSelectedOptionId});
       http.Response response;
 
-      response = await http.patch(
-        uri,
-        headers: {
-          'Content-Type': 'application/json; charset=UTF-8',
-          'Authorization': 'Bearer $token'
-        },
-        body: body,
-      );
+      // Logika PATCH -> POST fallback
+      response = await http.patch(uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: body);
       print(
-          '[handleAnswerSelect - PATCH attempt] Status: ${response.statusCode}');
+          '[handleAnswerSelect - PATCH] QID: $questionId, AnsID: $newSelectedOptionId, Status: ${response.statusCode}');
 
       if (response.statusCode == 404) {
-        print('[handleAnswerSelect] PATCH failed with 404, attempting POST.');
-        response = await http.post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json; charset=UTF-8',
-            'Authorization': 'Bearer $token'
-          },
-          body: body,
-        );
+        response = await http.post(uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+              'ngrok-skip-browser-warning': 'true',
+            },
+            body: body);
         print(
-            '[handleAnswerSelect - POST attempt] Status: ${response.statusCode}');
+            '[handleAnswerSelect - POST] QID: $questionId, AnsID: $newSelectedOptionId, Status: ${response.statusCode}');
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (newSelectedOptionId != null) {
           _showSnackBar("Jawaban disimpan!");
         } else {
-          _showSnackBar("Jawaban dihapus!");
+          _showSnackBar("Jawaban dihapus/dikosongkan.");
         }
       } else {
         _showSnackBar(
-            'Gagal menyimpan/menghapus jawaban. Status: ${response.statusCode}');
+            'Gagal menyimpan jawaban. Status: ${response.statusCode}');
       }
     } catch (e) {
       if (mounted)
@@ -306,6 +335,7 @@ class _SoalPageState extends State<SoalPage> {
     }
   }
 
+  // --- Navigasi sekarang tidak perlu async atau auto-submit ---
   void _goToNextQuestion() {
     if (_currentQuestionIndex < _questions.length - 1) {
       if (mounted)
@@ -314,7 +344,7 @@ class _SoalPageState extends State<SoalPage> {
         });
     } else {
       _showSnackBar(
-          'Ini adalah soal terakhir. Silakan periksa kembali jawaban Anda atau tunggu waktu habis.');
+          'Ini adalah soal terakhir. Silakan periksa kembali jawaban Anda.');
     }
   }
 
@@ -339,13 +369,8 @@ class _SoalPageState extends State<SoalPage> {
   Future<void> _saveAnswersToPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final key = 'tryout_${widget.tryoutId}_${widget.subjectId}_answers';
-    Map<String, String> answersToSave = {};
-    _selectedAnswers.forEach((key, value) {
-      if (value != null) {
-        answersToSave[key] = value;
-      }
-    });
-    await prefs.setString(key, jsonEncode(answersToSave));
+    // Simpan semua jawaban, termasuk yang null
+    await prefs.setString(key, jsonEncode(_selectedAnswers));
   }
 
   Future<void> _loadAnswersFromPrefs() async {
@@ -378,6 +403,13 @@ class _SoalPageState extends State<SoalPage> {
 
   Future<void> _finalizeTryout() async {
     if (!mounted) return;
+
+    // Panggil fungsi baru untuk submit semua soal yang belum terjawab di subjek terakhir
+    await _submitAllUnansweredQuestions();
+
+    // Beri jeda singkat agar request terakhir selesai di server
+    await Future.delayed(const Duration(milliseconds: 500));
+
     final uri =
         Uri.parse('$_baseUrl/api/student/tryout/${widget.tryoutId}/finalize');
     final prefs = await SharedPreferences.getInstance();
@@ -388,10 +420,11 @@ class _SoalPageState extends State<SoalPage> {
     }
 
     try {
-      _showSnackBar("Sedang menyelesaikan tryout...");
+      _showSnackBar("Memfinalisasi tryout...");
       final response = await http.post(uri, headers: {
         'Content-Type': 'application/json; charset=UTF-8',
         'Authorization': 'Bearer $token',
+        'ngrok-skip-browser-warning': 'true'
       });
       print('[finalizeTryout] URL: $uri');
       print(
@@ -581,9 +614,9 @@ class _SoalPageState extends State<SoalPage> {
               children: List.generate(_questions.length, (index) {
                 final String questionId =
                     _questions[index]['question_id']?.toString() ?? '';
+                // PERBAIKAN: Tampilan 'dijawab' sekarang didasarkan pada keberadaan key di map
                 final bool hasAnswered =
-                    _selectedAnswers.containsKey(questionId) &&
-                        _selectedAnswers[questionId] != null;
+                    _selectedAnswers.containsKey(questionId);
                 return GestureDetector(
                   onTap: () => _goToQuestion(index),
                   child: _questionNumberBox(
@@ -751,6 +784,7 @@ class _SoalPageState extends State<SoalPage> {
       border =
           Border.all(color: AppColors.textLight.withOpacity(0.8), width: 2);
     } else if (hasAnswered) {
+      // Cek apakah soal sudah pernah disentuh
       boxColor = AppColors.answeredQuestion;
       textColor = AppColors.textLight;
     } else {

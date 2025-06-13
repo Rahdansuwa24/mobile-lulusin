@@ -28,7 +28,7 @@ class TryoutPage extends StatefulWidget {
 
 class _TryoutPageState extends State<TryoutPage> {
   bool _isDropdownMenuOpen = false;
-  final String _baseUrl = 'http://localhost:3000';
+  final String _baseUrl = 'https://cardinal-helpful-simply.ngrok-free.app';
 
   String _tryoutName = 'Loading Tryout...';
   String _totalQuestions = '...';
@@ -37,7 +37,7 @@ class _TryoutPageState extends State<TryoutPage> {
   String _tryoutErrorMessage = '';
   String? _firstSubjectId;
   List<Subject> _fetchedAllSubjects =
-      []; // State untuk menyimpan daftar semua mata pelajaran
+      []; // State untuk menyimpan daftar mata pelajaran unik
 
   @override
   void initState() {
@@ -51,8 +51,6 @@ class _TryoutPageState extends State<TryoutPage> {
         _isLoadingTryout = false;
         _tryoutErrorMessage =
             'ID Tryout tidak valid. Silakan pilih tryout lagi.';
-        print(
-            'DEBUG (tryout_detail.dart): Error: TryoutPage received an empty tryoutId.');
       });
       _showSnackBar('ID Tryout tidak valid.');
     }
@@ -66,13 +64,8 @@ class _TryoutPageState extends State<TryoutPage> {
 
   void _handleDropdownItemSelected(String item) {
     _toggleDropdownMenu();
-
     if (item == 'Dashboard') {
       Navigator.pushReplacementNamed(context, '/siswa/dashboard');
-    } else if (item == 'Tryout') {
-      print(
-          'DEBUG (tryout_detail.dart): Navigating to Tryout List (or staying on current page)');
-      // Navigator.pushReplacementNamed(context, '/siswa/tryout_list');
     }
   }
 
@@ -80,37 +73,25 @@ class _TryoutPageState extends State<TryoutPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? token = prefs.getString('auth_token');
-
       if (token == null) {
-        _showSnackBar('Tidak ada token ditemukan. Anda sudah logout.');
         if (mounted) Navigator.pushReplacementNamed(context, '/');
         return;
       }
-
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/logout'),
-        headers: <String, String>{
-          'Content-Type': 'application/json; charset=UTF-8',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
+      final response =
+          await http.post(Uri.parse('$_baseUrl/api/logout'), headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+        'ngrok-skip-browser-warning': 'true'
+      });
       if (mounted) {
+        await prefs.remove('auth_token');
         if (response.statusCode == 200) {
-          await prefs.remove('auth_token');
           _showSnackBar('Logout berhasil!');
-          Navigator.pushReplacementNamed(context, '/');
-        } else {
-          final Map<String, dynamic> responseData = jsonDecode(response.body);
-          _showSnackBar(
-              'Logout gagal: ${responseData['message'] ?? 'Terjadi kesalahan.'}');
-          await prefs.remove('auth_token');
-          Navigator.pushReplacementNamed(context, '/');
         }
+        Navigator.pushReplacementNamed(context, '/');
       }
     } catch (e) {
-      if (mounted) _showSnackBar('Terjadi kesalahan jaringan saat logout: $e');
-      print('DEBUG (tryout_detail.dart): Logout Error: $e');
+      if (mounted) _showSnackBar('Terjadi kesalahan jaringan saat logout.');
     }
   }
 
@@ -120,28 +101,23 @@ class _TryoutPageState extends State<TryoutPage> {
       _isLoadingTryout = true;
       _tryoutErrorMessage = '';
       _firstSubjectId = null;
-      _fetchedAllSubjects = []; // Reset daftar mata pelajaran
+      _fetchedAllSubjects = [];
     });
 
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? token = prefs.getString('auth_token');
-
       if (token == null) {
-        if (mounted) {
-          _showSnackBar('Anda tidak terautentikasi. Silakan login kembali.');
-          Navigator.pushReplacementNamed(context, '/');
-        }
+        if (mounted) _navigateToLogin();
         return;
       }
 
-      // Endpoint untuk detail tryout, yang juga berisi daftar mata pelajaran
       final response = await http.get(
-        Uri.parse(
-            '$_baseUrl/api/student/tryout/$idTryout'), // Sesuai dengan contoh JSON Anda
-        headers: <String, String>{
-          'Content-Type': 'application/json; charset=UTF-8',
+        Uri.parse('$_baseUrl/api/student/tryout/$idTryout'),
+        headers: {
+          'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
+          'ngrok-skip-browser-warning': 'true'
         },
       );
 
@@ -149,83 +125,70 @@ class _TryoutPageState extends State<TryoutPage> {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
-        print(
-            'DEBUG (tryout_detail.dart): API Response for Tryout Details (tryoutId: $idTryout): ${response.body}');
 
-        setState(() {
-          final tryoutData = responseData['getTryout'];
-          final dataOverview = responseData[
-              'dataTryout']; // Menggunakan 'dataTryout' sesuai contoh JSON
+        final tryoutData = responseData['getTryout'];
+        final dataOverview = responseData['dataTryout'];
 
-          if (tryoutData is Map<String, dynamic>) {
-            _tryoutName = tryoutData['tryout_name'] ?? 'Tryout Detail';
+        List<Subject> parsedUniqueSubjects = [];
+        String? tempFirstSubjectId;
 
-            if (dataOverview is Map<String, dynamic>) {
-              _totalQuestions =
-                  dataOverview['total_minimal_questions']?.toString() ?? 'N/A';
-              _totalTime =
-                  dataOverview['total_time_limit']?.toString() ?? 'N/A';
-            } else {
-              _totalQuestions = 'N/A';
-              _totalTime = 'N/A';
-            }
-
-            // Ekstrak dan parse daftar mata pelajaran
-            if (tryoutData['subjects'] is List) {
-              final List<dynamic> subjectsJson = tryoutData['subjects'];
-              if (subjectsJson.isNotEmpty) {
-                _fetchedAllSubjects = subjectsJson
-                    .map((json) =>
-                        Subject.fromJson(json as Map<String, dynamic>))
-                    .toList();
-
-                // Ambil ID mata pelajaran pertama dari daftar yang sudah diparsing
-                _firstSubjectId = _fetchedAllSubjects.first.id;
-
-                if (_firstSubjectId == null || _firstSubjectId!.isEmpty) {
-                  print(
-                      'DEBUG (tryout_detail.dart): subject_id is null or empty for the first subject object.');
-                  _firstSubjectId = null; // Pastikan null jika tidak valid
-                } else {
-                  print(
-                      'DEBUG (tryout_detail.dart): First subject ID found: $_firstSubjectId');
-                }
-              } else {
-                _firstSubjectId = null;
-                _fetchedAllSubjects =
-                    []; // Pastikan list kosong jika tidak ada subjek
-                print(
-                    'DEBUG (tryout_detail.dart): "subjects" array is empty in tryoutData.');
+        if (tryoutData is Map<String, dynamic>) {
+          if (mounted) {
+            setState(() {
+              _tryoutName = tryoutData['tryout_name'] ?? 'Tryout Detail';
+              if (dataOverview is Map<String, dynamic>) {
+                _totalQuestions =
+                    dataOverview['total_minimal_questions']?.toString() ??
+                        'N/A';
+                _totalTime =
+                    dataOverview['total_time_limit']?.toString() ?? 'N/A';
               }
-            } else {
-              _firstSubjectId = null;
-              _fetchedAllSubjects = [];
-              print(
-                  'DEBUG (tryout_detail.dart): "subjects" array is missing or not a list in tryoutData.');
-            }
-          } else {
-            _tryoutName = 'Tryout Detail Not Found';
-            _totalQuestions = 'N/A';
-            _totalTime = 'N/A';
-            _firstSubjectId = null;
-            _fetchedAllSubjects = [];
-            _tryoutErrorMessage =
-                'Format respons API tidak sesuai: "getTryout" tidak ditemukan atau bukan objek.';
+            });
           }
-          _isLoadingTryout = false;
-        });
-      } else if (response.statusCode == 401) {
-        _showSnackBar('Sesi Anda telah berakhir. Silakan login kembali.');
-        await prefs.remove('auth_token');
-        Navigator.pushReplacementNamed(context, '/');
+
+          // --- LOGIKA DEDUPLIKASI KRUSIAL DI SINI ---
+          if (tryoutData['subjects'] is List) {
+            final List<dynamic> subjectsJson = tryoutData['subjects'];
+            Set<String> uniqueSubjectIds = {}; // Untuk melacak ID unik
+
+            if (subjectsJson.isNotEmpty) {
+              for (var subjectJson in subjectsJson) {
+                if (subjectJson is Map<String, dynamic>) {
+                  // Konversi ke string untuk konsistensi
+                  final subjectIdString = subjectJson['subject_id']?.toString();
+                  // Hanya tambahkan jika ID belum ada di Set
+                  if (subjectIdString != null &&
+                      !uniqueSubjectIds.contains(subjectIdString)) {
+                    parsedUniqueSubjects.add(Subject.fromJson(subjectJson));
+                    uniqueSubjectIds.add(subjectIdString);
+                  }
+                }
+              }
+
+              if (parsedUniqueSubjects.isNotEmpty) {
+                tempFirstSubjectId = parsedUniqueSubjects.first.id;
+              }
+            }
+          }
+          // --- AKHIR LOGIKA DEDUPLIKASI ---
+        }
+
+        if (mounted) {
+          setState(() {
+            _fetchedAllSubjects =
+                parsedUniqueSubjects; // Simpan daftar subjek yang sudah unik
+            _firstSubjectId = tempFirstSubjectId;
+            _isLoadingTryout = false;
+          });
+        }
       } else {
-        final Map<String, dynamic> responseData = jsonDecode(response.body);
-        setState(() {
-          _tryoutErrorMessage = responseData['message'] ??
-              'Gagal memuat detail tryout. Status: ${response.statusCode}';
-          _isLoadingTryout = false;
-        });
-        _showSnackBar(_tryoutErrorMessage);
+        if (mounted) {
+          setState(() {
+            _tryoutErrorMessage =
+                'Gagal memuat detail tryout. Status: ${response.statusCode}';
+            _isLoadingTryout = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -233,7 +196,6 @@ class _TryoutPageState extends State<TryoutPage> {
           _tryoutErrorMessage = 'Terjadi kesalahan jaringan: $e';
           _isLoadingTryout = false;
         });
-        _showSnackBar(_tryoutErrorMessage);
       }
       print('DEBUG (tryout_detail.dart): Fetch Tryout Details Error: $e');
     }
@@ -248,83 +210,10 @@ class _TryoutPageState extends State<TryoutPage> {
     }
   }
 
-  Widget _buildInfoBox({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: AppColors.white),
-          const SizedBox(height: 8),
-          Text(label,
-              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          Text(value,
-              style: const TextStyle(
-                  color: AppColors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTryoutRules() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.secondary,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
-            'Peraturan Tryout',
-            style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: AppColors.white,
-                fontSize: 18),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Persiapan Sebelum Tryout\n'
-            '1. Pastikan perangkat dalam kondisi baik dan koneksi stabil.\n'
-            '2. Gunakan browser terbaru.\n'
-            '3. Siapkan alat tulis jika diperlukan.\n'
-            '4. Cari tempat yang nyaman dan minim gangguan.\n'
-            '5. Pastikan baterai cukup atau sambungkan ke charger.',
-            style: TextStyle(color: AppColors.white),
-          ),
-          SizedBox(height: 12),
-          Text(
-            'Syarat Tryout Berlangsung:\n'
-            '1. Tidak membuka tab baru atau aplikasi lain.\n'
-            '2. Tidak refresh halaman.\n'
-            '3. Tidak keluar dari halaman ini.\n'
-            '4. Tidak menggunakan bantuan orang lain.\n'
-            '5. Tidak mengambil gambar soal.\n'
-            '6. Mengisi semua soal.\n'
-            '7. Pelanggaran akan membuat tryout dihentikan otomatis.',
-            style: TextStyle(color: AppColors.white),
-          ),
-        ],
-      ),
-    );
+  void _navigateToLogin() {
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/');
+    }
   }
 
   @override
@@ -394,14 +283,13 @@ class _TryoutPageState extends State<TryoutPage> {
                                   if (_firstSubjectId != null &&
                                       _firstSubjectId!.isNotEmpty &&
                                       _fetchedAllSubjects.isNotEmpty) {
-                                    // Tambahkan pengecekan _fetchedAllSubjects
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
                                         builder: (context) => SoalPage(
                                           tryoutId: widget.tryoutId,
                                           subjectId: _firstSubjectId!,
-                                          // PERBAIKAN: Teruskan daftar mata pelajaran yang sudah di-fetch
+                                          // PERBAIKAN: Teruskan daftar mata pelajaran yang sudah unik
                                           allSubjects: _fetchedAllSubjects,
                                         ),
                                       ),
@@ -430,6 +318,83 @@ class _TryoutPageState extends State<TryoutPage> {
                           ],
                         ),
                       ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Widget helper untuk InfoBox dan TryoutRules tetap sama
+  Widget _buildInfoBox(
+      {required IconData icon, required String label, required String value}) {
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: AppColors.white),
+          const SizedBox(height: 8),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(value,
+              style: const TextStyle(
+                  color: AppColors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTryoutRules() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.secondary,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text(
+            'Peraturan Tryout',
+            style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: AppColors.white,
+                fontSize: 18),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Persiapan Sebelum Tryout\n'
+            '1. Pastikan perangkat dalam kondisi baik dan koneksi stabil.\n'
+            '2. Gunakan browser terbaru.\n'
+            '3. Siapkan alat tulis jika diperlukan.\n'
+            '4. Cari tempat yang nyaman dan minim gangguan.\n'
+            '5. Pastikan baterai cukup atau sambungkan ke charger.',
+            style: TextStyle(color: AppColors.white),
+          ),
+          SizedBox(height: 12),
+          Text(
+            'Syarat Tryout Berlangsung:\n'
+            '1. Tidak membuka tab baru atau aplikasi lain.\n'
+            '2. Tidak refresh halaman.\n'
+            '3. Tidak keluar dari halaman ini.\n'
+            '4. Tidak menggunakan bantuan orang lain.\n'
+            '5. Tidak mengambil gambar soal.\n'
+            '6. Mengisi semua soal.\n'
+            '7. Pelanggaran akan membuat tryout dihentikan otomatis.',
+            style: TextStyle(color: AppColors.white),
           ),
         ],
       ),

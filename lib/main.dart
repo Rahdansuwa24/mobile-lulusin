@@ -1,13 +1,14 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_lulusin/explanation_detail.dart'; // Mengandung ExplanationDetailPage
 import 'package:flutter_lulusin/login_page.dart';
-import 'package:flutter_lulusin/nilai_tryout.dart';
-import 'package:flutter_lulusin/pembahasan_page.dart'; // Ini kemungkinan SoalPembahasanPage Anda
+import 'package:flutter_lulusin/nilai_tryout.dart'; // Halaman NilaiTryout (jika berbeda dari TryoutResultPage)
+import 'package:flutter_lulusin/pembahasan_page.dart'; // SEKARANG HARUSNYA MENGANDUNG TryoutResultPage
 import 'package:flutter_lulusin/register_page.dart';
-import 'package:flutter_lulusin/Dashboard.dart'; // Mengimpor kelas Dashboard
+import 'package:flutter_lulusin/Dashboard.dart'; // Mengandung kelas Dashboard (untuk /siswa/dashboard)
 import 'package:flutter_lulusin/soal_page.dart';
-import 'package:flutter_lulusin/listTryout.dart'; // Mengimpor kelas DashboardPage (atau TryoutListPage)
-import 'package:flutter_lulusin/tryout_detail.dart';
+import 'package:flutter_lulusin/listTryout.dart'; // Mengandung DashboardPage (untuk daftar tryout /siswa/tryout)
+import 'package:flutter_lulusin/tryout_detail.dart'; // Mengandung TryoutPage
 
 void main() {
   runApp(const MyApp());
@@ -22,48 +23,39 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Lulusin',
       theme: ThemeData(),
-      initialRoute: '/',
-      // Definisi rute statis yang tidak memerlukan argumen dinamis
+      initialRoute: '/', // Rute awal aplikasi
       routes: {
         '/': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
-        '/siswa/dashboard': (context) => const Dashboard(),
-        '/siswa/tryout': (context) =>
-            const DashboardPage(), // Untuk daftar tryout
-        '/siswa/tryout/hasil': (context) => const NilaiTryout(),
-        // Rute '/siswa/tryout/pembahasan' dipindahkan ke onGenerateRoute
-        // '/siswa/tryout/pembahasan': (context) => const SoalPembahasanPage(), // DIHAPUS DARI SINI
+        '/siswa/dashboard': (context) =>
+            const Dashboard(), // Halaman dashboard utama siswa
+        '/siswa/tryout': (context) => const DashboardPage(),
+        '/siswa/explanation_fallback': (context) => const ExplanationDetailPage(
+              tryoutId: 'DEFAULT_TRYOUT_ID',
+              subjectId: 'DEFAULT_SUBJECT_ID',
+            ),
       },
-      // Gunakan onGenerateRoute untuk rute yang perlu dilewatkan argumen
       onGenerateRoute: (settings) {
-        // Log untuk debugging: Apa yang diterima onGenerateRoute
         print(
             'DEBUG (main.dart): Route requested: ${settings.name}, Arguments: ${settings.arguments}');
-
-        // Menangani rute '/siswa/tryout/pembahasan' (halaman pembahasan)
-        if (settings.name == '/siswa/tryout/pembahasan') {
+        if (settings.name == '/siswa/tryout/hasil') {
           final args = settings.arguments;
-          // Pastikan argumen adalah String (tryoutId)
           if (args is String && args.isNotEmpty) {
             print(
-                'DEBUG (main.dart): Navigating to SoalPembahasanPage with tryoutId: $args');
+                'DEBUG (main.dart): Navigating to TryoutResultPage with tryoutId: $args');
             return MaterialPageRoute(
               builder: (context) {
-                // Pastikan SoalPembahasanPage memiliki constructor yang menerima tryoutId
-                return SoalPembahasanPage(tryoutId: args);
+                return TryoutResultPage(tryoutId: args);
               },
             );
           }
-          // Jika argumen tidak ada atau tidak valid
           print(
-              'DEBUG (main.dart): Error: tryoutId argument is missing or invalid for /siswa/tryout/pembahasan. Args: $args');
+              'DEBUG (main.dart): Error: tryoutId argument is missing or invalid for /siswa/tryout/hasil. Args: $args');
           return MaterialPageRoute(
-              builder: (context) =>
-                  const Text('Error: Tryout ID diperlukan untuk pembahasan.'));
+              builder: (context) => const Text(
+                  'Error: Tryout ID diperlukan untuk melihat hasil.'));
         }
-
-        // Menangani rute '/siswa/tryout/id' (halaman detail tryout)
-        if (settings.name == '/siswa/tryout/id') {
+        if (settings.name == '/siswa/tryout/detail') {
           final args = settings.arguments;
           if (args is String && args.isNotEmpty) {
             print(
@@ -71,25 +63,22 @@ class MyApp extends StatelessWidget {
             return MaterialPageRoute(
               builder: (context) {
                 return TryoutPage(
-                  tryoutId: args, // Lewatkan tryoutId yang diterima
+                  tryoutId: args,
                 );
               },
             );
           }
-          // Jika argumen tidak ada atau tidak valid
           print(
-              'DEBUG (main.dart): Error: tryoutId argument is missing or invalid for /siswa/tryout/id. Args: $args');
+              'DEBUG (main.dart): Error: tryoutId argument is missing or invalid for /siswa/tryout/detail. Args: $args');
           return MaterialPageRoute(
               builder: (context) => const Text('Error: Tryout ID diperlukan.'));
         }
-
-        // Menangani rute '/siswa/pengerjaan' (halaman soal)
         if (settings.name == '/siswa/pengerjaan') {
           final args = settings.arguments;
-          if (args is Map<String, String>) {
-            final tryoutId = args['tryoutId'];
-            final subjectId = args['subjectId'];
-
+          if (args is Map<String, dynamic>) {
+            // Lebih aman menggunakan Map<String, dynamic>
+            final tryoutId = args['tryoutId'] as String?;
+            final subjectId = args['subjectId'] as String?;
             if (tryoutId != null &&
                 tryoutId.isNotEmpty &&
                 subjectId != null &&
@@ -101,7 +90,7 @@ class MyApp extends StatelessWidget {
                   return SoalPage(
                     tryoutId: tryoutId,
                     subjectId: subjectId,
-                    allSubjects: [],
+                    allSubjects: const [], // Sediakan list kosong atau data yang sesuai
                   );
                 },
               );
@@ -113,11 +102,34 @@ class MyApp extends StatelessWidget {
               builder: (context) => const Text(
                   'Error: Tryout ID dan Subject ID diperlukan untuk SoalPage.'));
         }
+        if (settings.name == '/siswa/explanation') {
+          final args = settings.arguments;
+          if (args is Map<String, String>) {
+            final tryoutId = args['tryoutId'];
+            final subjectId = args['subjectId'];
+            if (tryoutId != null && subjectId != null) {
+              return MaterialPageRoute(
+                builder: (context) => ExplanationDetailPage(
+                  tryoutId: tryoutId,
+                  subjectId: subjectId,
+                ),
+              );
+            }
+          }
+          return MaterialPageRoute(
+            builder: (context) => const Text(
+                'Error: Argumen tidak lengkap untuk halaman pembahasan.'),
+          );
+        }
 
-        // Fallback untuk rute yang tidak dikenal
         print('DEBUG (main.dart): Unknown route requested: ${settings.name}');
         return MaterialPageRoute(
-            builder: (context) => const Text('Error: Rute tidak dikenal.'));
+            builder: (context) => Scaffold(
+                  appBar: AppBar(title: const Text("Error")),
+                  body: Center(
+                      child: Text(
+                          'Error: Rute tidak dikenal (${settings.name}).')),
+                ));
       },
     );
   }

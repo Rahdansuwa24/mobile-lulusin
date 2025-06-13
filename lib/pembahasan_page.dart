@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_lulusin/explanation_detail.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+// Impor halaman detail pembahasan yang baru/ Pastikan nama file ini benar
 
 class AppColors {
   static const Color primary = Color(0xFF1D3557); // Dark blue
@@ -18,8 +20,6 @@ class AppColors {
   static const Color wrongRed =
       Color(0xFFF44336); // A distinct red for wrong answers
 }
-
-// --- Model Data Tambahan (Opsional tapi direkomendasikan untuk struktur data yang jelas) ---
 
 class SummaryData {
   final double averageScore;
@@ -45,6 +45,7 @@ class SummaryData {
 }
 
 class SubjectResult {
+  final String idSubjek; // ID untuk subjek, diharapkan dari API
   final String namaSubjek;
   final double nilaiRataRata;
   final int totalJawabanBenar;
@@ -52,6 +53,7 @@ class SubjectResult {
   final int totalJawabanKosong;
 
   SubjectResult({
+    required this.idSubjek,
     required this.namaSubjek,
     required this.nilaiRataRata,
     required this.totalJawabanBenar,
@@ -61,6 +63,9 @@ class SubjectResult {
 
   factory SubjectResult.fromJson(Map<String, dynamic> json) {
     return SubjectResult(
+      // PENTING: Backend harus mengirimkan field 'id_subjek' dengan nilai yang valid.
+      // Jika tidak ada atau null, idSubjek akan menjadi string kosong.
+      idSubjek: json['id_subjek'] as String? ?? '',
       namaSubjek: json['nama_subjek'] as String? ?? 'Tidak Dikenal',
       nilaiRataRata: (json['nilai_rata_rata'] as num?)?.toDouble() ?? 0.0,
       totalJawabanBenar: (json['total_jawaban_benar'] as int?) ?? 0,
@@ -95,28 +100,23 @@ class CategorySubjectResult {
   }
 }
 
-// --- Akhir Model Data Tambahan ---
-
-class SoalPembahasanPage extends StatefulWidget {
+class TryoutResultPage extends StatefulWidget {
   final String tryoutId;
 
-  const SoalPembahasanPage({super.key, required this.tryoutId});
+  const TryoutResultPage({super.key, required this.tryoutId});
 
   @override
-  _SoalPembahasanPageState createState() => _SoalPembahasanPageState();
+  // ignore: library_private_types_in_public_api
+  _TryoutResultPageState createState() => _TryoutResultPageState();
 }
 
-class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
-  bool isExpanded = true;
-
-  // Data yang akan diambil dari API, menggunakan model yang baru
-  SummaryData? _summaryData; // Sekarang nullable karena mungkin belum terisi
+class _TryoutResultPageState extends State<TryoutResultPage> {
+  SummaryData? _summaryData;
   List<CategorySubjectResult> _perCategorySubjectData = [];
-
   bool _isLoading = true;
   String _errorMessage = '';
-
-  final String _baseUrl = 'http://localhost:3000'; // Base URL backend Anda
+  final String _baseUrl =
+      'https://cardinal-helpful-simply.ngrok-free.app'; // URL dasar backend Anda
 
   @override
   void initState() {
@@ -139,52 +139,51 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
           _errorMessage = 'Autentikasi diperlukan. Silakan login kembali.';
           _isLoading = false;
         });
-        // Future.microtask(() => Navigator.pushReplacementNamed(context, '/')); // uncomment if you want to redirect
         return;
       }
 
+      final url = '$_baseUrl/API/student/tryout/$tryoutId/result';
+      print('DEBUG (TryoutResultPage): Calling URL for result: $url');
+
       final response = await http.get(
-        Uri.parse('$_baseUrl/api/student/tryout/$tryoutId/result'),
+        Uri.parse(url),
         headers: <String, String>{
           'Content-Type': 'application/json; charset=UTF-8',
           'Authorization': 'Bearer $token',
+          'ngrok-skip-browser-warning': 'true',
         },
       );
 
       print(
-          'DEBUG (PembahasanPage): API Response Status Code: ${response.statusCode}');
-      print('DEBUG (PembahasanPage): API Response Body: ${response.body}');
+          'DEBUG (TryoutResultPage): API Response Status Code: ${response.statusCode}');
+      // print('DEBUG (TryoutResultPage): API Response Body: ${response.body}'); // Hati-hati jika body besar
 
       if (response.statusCode == 200) {
         final dynamic decodedBody = jsonDecode(response.body);
 
         if (decodedBody is Map<String, dynamic>) {
-          // Memastikan root adalah Map
-          // Parsing summary (yang merupakan List berisi satu Map)
           final List<dynamic>? summaryList = decodedBody['summary'];
           if (summaryList != null && summaryList.isNotEmpty) {
             _summaryData =
                 SummaryData.fromJson(summaryList[0] as Map<String, dynamic>);
           } else {
-            _summaryData = null; // Atau inisialisasi dengan default kosong
+            _summaryData = null;
           }
 
-          // Parsing perCategorySubject (List of Maps)
           final List<dynamic>? perCategorySubjectRaw =
               decodedBody['perCategorySubject'];
           if (perCategorySubjectRaw != null) {
             _perCategorySubjectData = perCategorySubjectRaw.map((item) {
-              // Periksa apakah item adalah Map dan memiliki kunci 'result'
-              if (item is Map<String, dynamic> && item.containsKey('result')) {
-                // Pastikan item['result'] juga Map
-                if (item['result'] is Map<String, dynamic>) {
-                  return CategorySubjectResult.fromJson(
-                      item['result'] as Map<String, dynamic>);
-                }
+              if (item is Map<String, dynamic> &&
+                  item.containsKey('result') &&
+                  item['result'] is Map<String, dynamic>) {
+                return CategorySubjectResult.fromJson(
+                    item['result'] as Map<String, dynamic>);
               }
-              // Jika format tidak sesuai, berikan objek kosong atau tangani error
+              print(
+                  'DEBUG (TryoutResultPage): Invalid item format in perCategorySubjectRaw: $item');
               return CategorySubjectResult(
-                  subjek: [], namaKategori: 'Data Tidak Valid');
+                  subjek: [], namaKategori: 'Data Kategori Tidak Valid');
             }).toList();
           } else {
             _perCategorySubjectData = [];
@@ -196,33 +195,29 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
         } else {
           setState(() {
             _errorMessage =
-                'Format respons API tidak sesuai. Diharapkan objek JSON sebagai root, tetapi menerima tipe lain.';
-            print(
-                'DEBUG (PembahasanPage): Received unexpected root type: ${decodedBody.runtimeType}');
+                'Format respons API tidak sesuai: Diharapkan objek JSON sebagai root.';
             _isLoading = false;
           });
         }
       } else {
         setState(() {
           _errorMessage =
-              'Gagal memuat hasil tryout: ${response.statusCode} - ${response.body}';
+              'Gagal memuat hasil tryout: ${response.statusCode} - ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}';
           _isLoading = false;
         });
       }
     } on http.ClientException catch (e) {
       setState(() {
-        _errorMessage =
-            'Terjadi kesalahan jaringan: ${e.message}. Pastikan Anda terhubung ke internet dan server aktif.';
+        _errorMessage = 'Terjadi kesalahan jaringan: ${e.message}.';
         _isLoading = false;
       });
-      print('DEBUG (PembahasanPage): ClientException: ${e.message}');
+      print('DEBUG (TryoutResultPage): ClientException: ${e.message}');
     } catch (e) {
       setState(() {
-        _errorMessage =
-            'Terjadi kesalahan tidak terduga saat parsing atau memproses data: $e';
+        _errorMessage = 'Terjadi kesalahan tidak terduga: $e';
         _isLoading = false;
       });
-      print('DEBUG (PembahasanPage): General Exception: $e');
+      print('DEBUG (TryoutResultPage): General Exception: $e');
     }
   }
 
@@ -232,9 +227,9 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.primary,
-        title: Text(
-          'Hasil Tryout: ${widget.tryoutId}',
-          style: const TextStyle(
+        title: const Text(
+          'Hasil Tryout',
+          style: TextStyle(
               color: AppColors.textLight, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
@@ -261,6 +256,9 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
                           ElevatedButton(
                             onPressed: () =>
                                 _fetchTryoutResultData(widget.tryoutId),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: AppColors.textLight),
                             child: const Text('Coba Lagi'),
                           ),
                         ],
@@ -272,13 +270,23 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
                     child: Center(
                       child: Column(
                         children: [
-                          // Section: User Information & Timer
                           _buildInfoSection(),
                           const SizedBox(height: 20),
-
-                          // Section: Per Category Subject Results
                           _buildCategorySubjectSection(),
                           const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.arrow_back),
+                            label: const Text('Kembali ke Daftar Tryout'),
+                            onPressed: () {
+                              Navigator.pop(context);
+                            },
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.secondary,
+                                foregroundColor: AppColors.textLight,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 12),
+                                textStyle: const TextStyle(fontSize: 16)),
+                          )
                         ],
                       ),
                     ),
@@ -288,19 +296,11 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
   }
 
   Widget _buildInfoSection() {
-    // Pastikan _summaryData tidak null sebelum mengakses propertinya
     final String averageScore =
         (_summaryData?.averageScore ?? 0.0).toStringAsFixed(2);
     final String totalCorrect = (_summaryData?.totalCorrect ?? 0).toString();
     final String totalWrong = (_summaryData?.totalWrong ?? 0).toString();
     final String totalEmpty = (_summaryData?.totalEmpty ?? 0).toString();
-
-    // Data username, time_taken, major_prediction tidak ada di JSON summary yang diberikan.
-    // Jika data ini ada di tempat lain di API Anda, Anda harus mengambilnya secara terpisah
-    // atau meminta backend untuk menyertakannya di respons ini.
-    final String userName = 'Nama Pengguna Tidak Tersedia'; // Placeholder
-    final String timeTaken = 'Tidak Tersedia'; // Placeholder
-    final String majorPrediction = 'Tidak Tersedia'; // Placeholder
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -326,14 +326,32 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
             ),
           ),
           const SizedBox(height: 12),
-          _infoBox("Nama Pengguna: $userName"),
-          _infoBox("ID Tryout: ${widget.tryoutId}"),
-          _infoBox("Skor Rata-rata: $averageScore"),
-          _infoBox("Total Benar: $totalCorrect"),
-          _infoBox("Total Salah: $totalWrong"),
-          _infoBox("Total Kosong: $totalEmpty"),
-          const SizedBox(height: 16),
-          const SizedBox(height: 12),
+          _infoRow("ID Tryout:", widget.tryoutId),
+          _infoRow("Skor Rata-rata:", averageScore,
+              valueColor: AppColors.accent),
+          _infoRow("Total Benar:", totalCorrect,
+              valueColor: AppColors.correctGreen),
+          _infoRow("Total Salah:", totalWrong, valueColor: AppColors.wrongRed),
+          _infoRow("Total Kosong:", totalEmpty,
+              valueColor: Colors.grey.shade300),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value, {Color? valueColor}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: const TextStyle(color: AppColors.textLight, fontSize: 15)),
+          Text(value,
+              style: TextStyle(
+                  color: valueColor ?? AppColors.textLight,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -341,7 +359,7 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
 
   Widget _buildCategorySubjectSection() {
     if (_perCategorySubjectData.isEmpty) {
-      return const SizedBox();
+      return const Center(child: Text("Data skor per subjek tidak tersedia."));
     }
     return Container(
       padding: const EdgeInsets.all(16),
@@ -360,18 +378,17 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Skor per Kategori & Subjek", // Ubah judul
+            "Skor per Subjek",
             style: TextStyle(
               color: AppColors.primary,
               fontWeight: FontWeight.bold,
               fontSize: 18,
             ),
           ),
-          const SizedBox(height: 12),
-          ..._perCategorySubjectData.map((categoryResult) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          const Divider(height: 24, thickness: 1),
+          ..._perCategorySubjectData.expand((categoryResult) {
+            return [
+              if (_perCategorySubjectData.length > 1)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Text(
@@ -379,190 +396,96 @@ class _SoalPembahasanPageState extends State<SoalPembahasanPage> {
                     style: const TextStyle(
                       color: AppColors.secondary,
                       fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                      fontSize: 17,
                     ),
                   ),
                 ),
-                ...categoryResult.subjek.map((subject) {
-                  return Padding(
-                    padding: const EdgeInsets.only(
-                        left: 16.0, top: 4.0, bottom: 4.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            subject.namaSubjek,
-                            style: const TextStyle(
-                                color: AppColors.textDark, fontSize: 15),
+              ...categoryResult.subjek.map((subject) {
+                return Card(
+                  elevation: 2,
+                  margin: const EdgeInsets.symmetric(vertical: 6.0),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                  child: InkWell(
+                    onTap: () {
+                      // PENTING: Logika ini akan menampilkan error jika subject.idSubjek kosong.
+                      // Pastikan backend mengirimkan 'id_subjek' yang valid untuk setiap subjek.
+                      if (subject.idSubjek.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text(
+                                  'ID Subjek tidak valid untuk melihat pembahasan.')),
+                        );
+                        print(
+                            "ID Subjek kosong untuk ${subject.namaSubjek}. Backend perlu mengirim 'id_subjek'.");
+                        return;
+                      }
+                      print(
+                          "Navigasi ke pembahasan: Tryout ID: ${widget.tryoutId}, Subject ID: ${subject.idSubjek}, Nama Subjek: ${subject.namaSubjek}");
+
+                      Navigator.pushNamed(
+                        context,
+                        '/siswa/explanation',
+                        arguments: {
+                          'tryoutId': widget.tryoutId,
+                          'subjectId': subject.idSubjek,
+                        },
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              subject.namaSubjek,
+                              style: const TextStyle(
+                                  color: AppColors.textDark,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500),
+                            ),
                           ),
-                        ),
-                        Text(
-                          subject.nilaiRataRata.toStringAsFixed(2),
-                          style: const TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
+                          Expanded(
+                            flex: 2,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Text(
+                                  subject.nilaiRataRata.toStringAsFixed(2),
+                                  style: const TextStyle(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Tooltip(
+                                  message:
+                                      "Benar: ${subject.totalJawabanBenar}\nSalah: ${subject.totalJawabanSalah}\nKosong: ${subject.totalJawabanKosong}",
+                                  child: const Icon(Icons.info_outline,
+                                      color: AppColors.secondary, size: 18),
+                                ),
+                                const SizedBox(width: 5),
+                                const Icon(Icons.chevron_right,
+                                    color: AppColors.secondary),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8), // Spasi kecil
-                        Text(
-                          'B: ${subject.totalJawabanBenar}',
-                          style: const TextStyle(
-                              color: AppColors.correctGreen, fontSize: 13),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'S: ${subject.totalJawabanSalah}',
-                          style: const TextStyle(
-                              color: AppColors.wrongRed, fontSize: 13),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'K: ${subject.totalJawabanKosong}',
-                          style:
-                              const TextStyle(color: Colors.grey, fontSize: 13),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  );
-                }),
-              ],
-            );
+                  ),
+                );
+              }),
+              if (_perCategorySubjectData.length > 1 &&
+                  categoryResult != _perCategorySubjectData.last)
+                const SizedBox(height: 10),
+            ];
           }),
         ],
-      ),
-    );
-  }
-
-  // --- Helper widgets (dihilangkan dari build utama, tapi tetap ada jika Anda ingin memanggilnya) ---
-  Widget _infoBox(String text) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(
-        color: AppColors.secondary,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: AppColors.textLight, fontSize: 15),
-        textAlign: TextAlign.center,
-      ),
-    );
-  }
-
-  Widget _questionNumberBox(int number,
-      {bool isActive = false, bool isCorrect = false, bool isWrong = false}) {
-    Color bgColor = AppColors.textLight;
-    Color textColor = AppColors.textDark;
-
-    if (isActive) {
-      bgColor = AppColors.success;
-      textColor = AppColors.textLight;
-    } else if (isCorrect) {
-      bgColor = AppColors.correctGreen;
-      textColor = AppColors.textLight;
-    } else if (isWrong) {
-      bgColor = AppColors.wrongRed;
-      textColor = AppColors.textLight;
-    }
-
-    return Container(
-      width: 36,
-      height: 36,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.secondary, width: 1),
-      ),
-      child: Text(
-        "$number",
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 14,
-        ),
-      ),
-    );
-  }
-
-  // Dummies, removed from main build method
-  final List<String> answerOptions = []; // Dikosongkan karena dari API
-  final String correctAnswer = ''; // Dikosongkan karena dari API
-  String? selectedAnswer; // Dikosongkan karena dari API
-
-  Widget _answerButton(String label,
-      {bool isSelected = false,
-      bool isCorrectAnswer = false,
-      bool userAnswered = false}) {
-    Color buttonColor = AppColors.background;
-    Color textColor = AppColors.textDark;
-    Color borderColor = AppColors.secondary;
-
-    if (userAnswered) {
-      if (isCorrectAnswer) {
-        buttonColor = AppColors.correctGreen;
-        textColor = AppColors.textLight;
-        borderColor = AppColors.correctGreen;
-      } else if (isSelected && !isCorrectAnswer) {
-        buttonColor = AppColors.wrongRed;
-        textColor = AppColors.textLight;
-        borderColor = AppColors.wrongRed;
-      } else if (isSelected && isCorrectAnswer) {
-        buttonColor = AppColors.correctGreen;
-        textColor = AppColors.textLight;
-        borderColor = AppColors.correctGreen;
-      }
-    } else if (isSelected) {
-      buttonColor = AppColors.accent;
-      borderColor = AppColors.primary;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: ElevatedButton(
-        onPressed: null, // Disabled in this context
-        style: ElevatedButton.styleFrom(
-          backgroundColor: buttonColor,
-          foregroundColor: textColor,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: borderColor, width: 1),
-          ),
-          elevation: 2,
-        ),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            label,
-            textAlign: TextAlign.left,
-            style: TextStyle(fontSize: 15, color: textColor),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _navigationButton(String label, IconData icon) {
-    return ElevatedButton.icon(
-      onPressed: null, // Disabled in this context
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.secondary,
-        foregroundColor: AppColors.textLight,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        elevation: 3,
-      ),
-      icon: Icon(icon),
-      label: Text(
-        label,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
       ),
     );
   }

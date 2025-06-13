@@ -15,7 +15,7 @@ class _MyLoginPage extends State<LoginPage> {
   TextEditingController passwordController = TextEditingController();
 
   final String _baseUrl =
-      'http://localhost:3000'; // Sesuaikan dengan URL backend Anda
+      'https://cardinal-helpful-simply.ngrok-free.app'; // Sesuaikan dengan URL backend Anda
 
   @override
   void dispose() {
@@ -38,6 +38,7 @@ class _MyLoginPage extends State<LoginPage> {
         Uri.parse('$_baseUrl/api/login'),
         headers: <String, String>{
           'Content-Type': 'application/json; charset=UTF-8',
+          'ngrok-skip-browser-warning': 'true'
         },
         body: jsonEncode(<String, String>{
           'email': email,
